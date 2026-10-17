@@ -1,0 +1,15 @@
+from app.routers.health import router as health_router
+from app.routers.auth import router as auth_router
+from app.routers.businesses import router as businesses_router
+from app.routers.products import router as products_router
+from app.routers.orders import router as orders_router
+from app.routers.customers import router as customers_router
+
+__all__ = [
+    "health_router",
+    "auth_router",
+    "businesses_router",
+    "products_router",
+    "orders_router",
+    "customers_router",
+]
