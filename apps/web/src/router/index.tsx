@@ -25,6 +25,8 @@ import ProductsPage from '@/pages/products/ProductsPage'
 import ProductFormPage from '@/pages/products/ProductFormPage'
 import CustomersPage from '@/pages/customers/CustomersPage'
 import CustomerDetailPage from '@/pages/customers/CustomerDetailPage'
+import InboxPage from '@/pages/inbox/InboxPage'
+import WhatsAppSettingsPage from '@/pages/settings/WhatsAppSettingsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
 /**
@@ -165,6 +167,14 @@ export const router = createBrowserRouter([
       {
         path: '/customers/:customerId',
         element: <CustomerDetailPage />,
+      },
+      {
+        path: '/inbox',
+        element: <InboxPage />,
+      },
+      {
+        path: '/settings/whatsapp',
+        element: <WhatsAppSettingsPage />,
       },
     ],
   },

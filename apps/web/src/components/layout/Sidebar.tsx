@@ -31,11 +31,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Orders', href: '/orders', icon: ShoppingCart },
   {
-    label: 'WhatsApp',
-    href: '#whatsapp',
+    label: 'WhatsApp Inbox',
+    href: '/inbox',
     icon: MessageCircle,
-    badge: 'Coming Soon',
-    disabled: true,
   },
   { label: 'Customers', href: '/customers', icon: Users },
   { label: 'Products', href: '/products', icon: Package },
@@ -53,7 +51,11 @@ const NAV_ITEMS: NavItem[] = [
     badge: 'Coming Soon',
     disabled: true,
   },
-  { label: 'Settings', href: '#settings', icon: Settings, badge: 'Coming Soon', disabled: true },
+  {
+    label: 'WhatsApp Settings',
+    href: '/settings/whatsapp',
+    icon: Settings,
+  },
 ]
 
 export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {

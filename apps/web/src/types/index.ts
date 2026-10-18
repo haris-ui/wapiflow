@@ -220,3 +220,119 @@ export class ApiError extends Error {
     this.details = details
   }
 }
+
+// ==============================================================================
+// Phase 2: WhatsApp & Conversation Types
+// ==============================================================================
+
+export interface WhatsAppPhoneNumber {
+  id: string
+  business_id: string
+  whatsapp_account_id: string
+  phone_number: string
+  display_name?: string | null
+  quality_rating?: string | null
+  status: string
+  is_primary: boolean
+  created_at: string
+}
+
+export interface WhatsAppAccount {
+  id: string
+  business_id: string
+  waba_id: string
+  app_id: string
+  status: 'connected' | 'disconnected' | 'error'
+  webhook_verified_at?: string | null
+  created_at: string
+  updated_at: string
+  phone_numbers?: WhatsAppPhoneNumber[]
+}
+
+export interface WhatsAppConfigInfo {
+  status: 'connected' | 'disconnected' | 'error'
+  waba_id?: string | null
+  app_id?: string | null
+  webhook_url: string
+  verify_token: string
+  phone_numbers: WhatsAppPhoneNumber[]
+}
+
+export interface WhatsAppAccountConnect {
+  waba_id: string
+  app_id: string
+  access_token: string
+  phone_numbers?: Array<{
+    phone_number: string
+    display_name?: string
+    is_primary?: boolean
+  }>
+}
+
+export type MessageType =
+  | 'text'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'document'
+  | 'template'
+  | 'interactive'
+  | 'unknown'
+
+export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
+
+export interface Message {
+  id: string
+  conversation_id: string
+  business_id: string
+  wa_message_id?: string | null
+  direction: 'inbound' | 'outbound'
+  message_type: MessageType
+  content?: string | null
+  media_url?: string | null
+  media_mime_type?: string | null
+  status: MessageStatus
+  error_code?: string | null
+  error_message?: string | null
+  sent_by?: string | null
+  is_internal_note: boolean
+  metadata?: Record<string, any> | null
+  created_at: string
+  updated_at: string
+}
+
+export type ConversationStatus = 'open' | 'resolved' | 'snoozed'
+
+export interface Conversation {
+  id: string
+  business_id: string
+  customer_id?: string | null
+  customer?: Customer | null
+  whatsapp_phone_number_id?: string | null
+  wa_conversation_id?: string | null
+  status: ConversationStatus
+  assigned_to?: string | null
+  unread_count: number
+  last_message_at?: string | null
+  last_message_preview?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: Message[]
+}
+
+export interface MessageCreate {
+  content: string
+  is_internal_note?: boolean
+  message_type?: string
+}
+
+export interface ConversationQuickOrderCreate {
+  items: Array<{ product_id: string; quantity: number }>
+  notes?: string
+  fulfillment_address?: string
+  idempotency_key?: string
+}
+
