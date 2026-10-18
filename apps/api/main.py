@@ -20,6 +20,9 @@ from app.routers.customers import router as customers_router
 from app.routers.health import router as health_router
 from app.routers.orders import router as orders_router
 from app.routers.products import router as products_router
+from app.routers.webhooks import router as webhooks_router
+from app.routers.whatsapp import router as whatsapp_router
+from app.routers.conversations import router as conversations_router
 
 settings = get_settings()
 
@@ -160,3 +163,6 @@ app.include_router(businesses_router, prefix=API_V1_PREFIX)
 app.include_router(products_router, prefix=API_V1_PREFIX)
 app.include_router(orders_router, prefix=API_V1_PREFIX)
 app.include_router(customers_router, prefix=API_V1_PREFIX)
+app.include_router(webhooks_router, prefix=API_V1_PREFIX)
+app.include_router(whatsapp_router, prefix=API_V1_PREFIX)
+app.include_router(conversations_router, prefix=API_V1_PREFIX)

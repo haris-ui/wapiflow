@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from app.models.product import Product, InventoryMovement
     from app.models.order import Order
     from app.models.customer import Customer
-    from app.models.whatsapp import WhatsAppConnection
+    from app.models.whatsapp import WhatsAppAccount
 
 
 class Business(Base, TimestampMixin):
@@ -96,8 +96,8 @@ class Business(Base, TimestampMixin):
         back_populates="business",
         cascade="all, delete-orphan",
     )
-    whatsapp_connection: Mapped[Optional["WhatsAppConnection"]] = relationship(
-        "WhatsAppConnection",
+    whatsapp_account: Mapped[Optional["WhatsAppAccount"]] = relationship(
+        "WhatsAppAccount",
         back_populates="business",
         uselist=False,
         cascade="all, delete-orphan",

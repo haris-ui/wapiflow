@@ -3,6 +3,10 @@ from app.services.business_service import BusinessService
 from app.services.product_service import ProductService
 from app.services.order_service import OrderService
 from app.services.customer_service import CustomerService
+from app.services.meta_client import MetaWhatsAppClient
+from app.services.webhook_service import WebhookService
+from app.services.whatsapp_service import WhatsAppService
+from app.services.conversation_service import ConversationService
 
 __all__ = [
     "AuthService",
@@ -11,4 +15,8 @@ __all__ = [
     "ProductService",
     "OrderService",
     "CustomerService",
+    "MetaWhatsAppClient",
+    "WebhookService",
+    "WhatsAppService",
+    "ConversationService",
 ]

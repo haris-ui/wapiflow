@@ -9,7 +9,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.business import Business
     from app.models.order import Order
-    from app.models.whatsapp import WhatsAppMessage
+    from app.models.whatsapp import Conversation
 
 
 class Customer(Base, TimestampMixin):
@@ -73,7 +73,8 @@ class Customer(Base, TimestampMixin):
         "Order",
         back_populates="customer",
     )
-    whatsapp_messages: Mapped[List["WhatsAppMessage"]] = relationship(
-        "WhatsAppMessage",
+    conversations: Mapped[List["Conversation"]] = relationship(
+        "Conversation",
         back_populates="customer",
+        cascade="all, delete-orphan",
     )

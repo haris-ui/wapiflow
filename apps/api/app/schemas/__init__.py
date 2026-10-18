@@ -48,6 +48,23 @@ from app.schemas.order import (
     OrderResponse,
 )
 
+from app.schemas.whatsapp import (
+    WhatsAppPhoneNumberResponse,
+    WhatsAppAccountConnect,
+    WhatsAppAccountResponse,
+    WhatsAppConfigInfo,
+    TestMessageRequest,
+)
+from app.schemas.conversation import (
+    MessageCreate,
+    MessageResponse,
+    ConversationCustomerInfo,
+    ConversationResponse,
+    ConversationDetailResponse,
+    ConversationUpdate,
+    ConversationQuickOrderCreate,
+)
+
 __all__ = [
     "BaseSchema",
     "PaginatedResponse",
@@ -86,4 +103,17 @@ __all__ = [
     "OrderStatusUpdate",
     "OrderListItem",
     "OrderResponse",
+    "WhatsAppPhoneNumberResponse",
+    "WhatsAppAccountConnect",
+    "WhatsAppAccountResponse",
+    "WhatsAppConfigInfo",
+    "TestMessageRequest",
+    "MessageCreate",
+    "MessageResponse",
+    "ConversationCustomerInfo",
+    "ConversationResponse",
+    "ConversationDetailResponse",
+    "ConversationUpdate",
+    "ConversationQuickOrderCreate",
 ]
+

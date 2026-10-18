@@ -147,3 +147,56 @@ async def create_business() -> callable:
         return business_id
 
     return _create
+
+
+class _TestBusiness:
+    def __init__(self, bid: uuid.UUID):
+        self.id = bid
+
+
+@pytest_asyncio.fixture
+async def test_user_and_business(create_user, create_business):
+    """Convenience fixture creating a test user and an owned test business."""
+    user_id, headers = await create_user(f"tenant_{uuid.uuid4().hex[:8]}@example.com")
+    biz_id = await create_business(user_id, "Test Business", f"test-biz-{uuid.uuid4().hex[:6]}")
+    return user_id, headers, _TestBusiness(biz_id)
+
+
+@pytest_asyncio.fixture
+async def test_business(test_user_and_business):
+    """Convenience fixture returning a business with .id."""
+    _, _, biz = test_user_and_business
+    return biz
+
+
+@pytest_asyncio.fixture
+async def auth_headers(test_user_and_business):
+    """Convenience fixture returning auth headers for the test business owner."""
+    _, headers, _ = test_user_and_business
+    return headers
+
+
+@pytest_asyncio.fixture
+def test_user_factory(create_user):
+    """Factory fixture to create users and return a simple object with id."""
+    async def _make(email: str):
+        class _User:
+            def __init__(self, uid: uuid.UUID):
+                self.id = uid
+
+        uid, _ = await create_user(email)
+        return _User(uid)
+
+    return _make
+
+
+@pytest_asyncio.fixture
+def test_business_factory(create_business):
+    """Factory fixture to create business and return object with id."""
+    async def _make(owner_user_id: uuid.UUID, name: str):
+        slug = f"slug-{uuid.uuid4().hex[:8]}"
+        bid = await create_business(owner_user_id, name, slug)
+        return _TestBusiness(bid)
+
+    return _make
+

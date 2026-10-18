@@ -4,7 +4,15 @@ from app.models.business import Business, BusinessMember, BusinessSettings, Subs
 from app.models.product import Product, InventoryMovement
 from app.models.customer import Customer
 from app.models.order import Order, OrderItem, OrderStatusHistory
-from app.models.whatsapp import WhatsAppConnection, WhatsAppMessage
+from app.models.whatsapp import (
+    Conversation,
+    Message,
+    WebhookEvent,
+    WhatsAppAccount,
+    WhatsAppConnection,
+    WhatsAppMessage,
+    WhatsAppPhoneNumber,
+)
 
 __all__ = [
     "Base",
@@ -20,6 +28,11 @@ __all__ = [
     "Order",
     "OrderItem",
     "OrderStatusHistory",
+    "WhatsAppAccount",
+    "WhatsAppPhoneNumber",
+    "Conversation",
+    "Message",
+    "WebhookEvent",
     "WhatsAppConnection",
     "WhatsAppMessage",
 ]
