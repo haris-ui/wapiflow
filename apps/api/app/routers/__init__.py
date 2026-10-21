@@ -7,6 +7,7 @@ from app.routers.customers import router as customers_router
 from app.routers.webhooks import router as webhooks_router
 from app.routers.whatsapp import router as whatsapp_router
 from app.routers.conversations import router as conversations_router
+from app.routers.media import router as media_router
 
 __all__ = [
     "health_router",
@@ -18,4 +19,5 @@ __all__ = [
     "webhooks_router",
     "whatsapp_router",
     "conversations_router",
+    "media_router",
 ]

@@ -168,3 +168,257 @@ async def test_order_status_transitions_and_history(client: AsyncClient, create_
     )
     assert res_prep.status_code == 200
     assert res_prep.json()["status"] == "preparing"
+
+
+@pytest.mark.asyncio
+async def test_order_creation_auto_creates_customer_and_decrements_stock(
+    client: AsyncClient, create_user, create_business
+):
+    """Inline customer_phone/name auto-creates a customer and decrements product stock."""
+    user_id, headers = await create_user("stock_owner@example.com")
+    business_id = await create_business(
+        user_id, "Stock Biz", f"stock-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "Widget", "sku": "WID-1", "price": 12.00, "stock_quantity": 10},
+        headers=headers,
+    )
+    assert prod_res.status_code == 201
+    prod_id = prod_res.json()["id"]
+    payload = {
+        "items": [{"product_id": prod_id, "quantity": 3}],
+        "customer_name": "Walk-in Customer",
+        "customer_phone": "+15550001111",
+        "fulfillment_address": "1 Nowhere Street",
+    }
+    res = await client.post(
+        f"/api/v1/businesses/{business_id}/orders", json=payload, headers=headers
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["status"] == "pending"
+    assert data["items"][0]["quantity"] == 3
+    assert float(data["total_amount"]) == 36.00
+    assert data["customer"]["name"] == "Walk-in Customer"
+    assert data["customer"]["phone_number"] == "+15550001111"
+    prod_get = await client.get(
+        f"/api/v1/businesses/{business_id}/products/{prod_id}", headers=headers
+    )
+    assert prod_get.json()["stock_quantity"] == 7
+
+
+@pytest.mark.asyncio
+async def test_order_empty_items_rejected(client: AsyncClient, create_user, create_business):
+    """Creating an order with no line items returns 422."""
+    user_id, headers = await create_user("empty_items@example.com")
+    business_id = await create_business(
+        user_id, "Empty Biz", f"empty-biz-{uuid.uuid4().hex[:6]}"
+    )
+    response = await client.post(
+        f"/api/v1/businesses/{business_id}/orders",
+        json={"items": []},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_order_invalid_status_transition_matrix(
+    client: AsyncClient, create_user, create_business
+):
+    """Every invalid status transition returns 422 with a clear message."""
+    user_id, headers = await create_user("matrix@example.com")
+    business_id = await create_business(
+        user_id, "Matrix Biz", f"matrix-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "Thing", "sku": "TH-1", "price": 5.00},
+        headers=headers,
+    )
+    prod_id = prod_res.json()["id"]
+    order_res = await client.post(
+        f"/api/v1/businesses/{business_id}/orders",
+        json={"items": [{"product_id": prod_id, "quantity": 1}]},
+        headers=headers,
+    )
+    order_id = order_res.json()["id"]
+
+    # pending cannot jump ahead to preparing/ready_for_dispatch/shipped/delivered
+    for target in ["preparing", "ready_for_dispatch", "shipped", "delivered"]:
+        resp = await client.patch(
+            f"/api/v1/businesses/{business_id}/orders/{order_id}/status",
+            json={"new_status": target},
+            headers=headers,
+        )
+        assert resp.status_code == 422, f"pending -> {target} should be rejected"
+        assert "Invalid status transition" in resp.json()["message"]
+
+    # Walk the valid chain to delivered
+    for target in ["confirmed", "preparing", "ready_for_dispatch", "shipped", "delivered"]:
+        resp = await client.patch(
+            f"/api/v1/businesses/{business_id}/orders/{order_id}/status",
+            json={"new_status": target},
+            headers=headers,
+        )
+        assert resp.status_code == 200, f"transition to {target} should succeed"
+        assert resp.json()["status"] == target
+
+    # delivered is terminal: no further transitions allowed
+    resp = await client.patch(
+        f"/api/v1/businesses/{business_id}/orders/{order_id}/status",
+        json={"new_status": "preparing"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    resp = await client.patch(
+        f"/api/v1/businesses/{business_id}/orders/{order_id}/status",
+        json={"new_status": "cancelled"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_order_cancellation_restores_stock(
+    client: AsyncClient, create_user, create_business
+):
+    """Cancelling an order restores auto-decremented inventory."""
+    user_id, headers = await create_user("cancel_owner@example.com")
+    business_id = await create_business(
+        user_id, "Cancel Biz", f"cancel-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "Gadget", "sku": "GAD-1", "price": 9.00, "stock_quantity": 10},
+        headers=headers,
+    )
+    prod_id = prod_res.json()["id"]
+
+    order_res = await client.post(
+        f"/api/v1/businesses/{business_id}/orders",
+        json={"items": [{"product_id": prod_id, "quantity": 4}]},
+        headers=headers,
+    )
+    assert order_res.status_code == 201
+    order_id = order_res.json()["id"]
+
+    prod_after_order = await client.get(
+        f"/api/v1/businesses/{business_id}/products/{prod_id}", headers=headers
+    )
+    assert prod_after_order.json()["stock_quantity"] == 6
+
+    cancel_res = await client.patch(
+        f"/api/v1/businesses/{business_id}/orders/{order_id}/status",
+        json={"new_status": "cancelled", "notes": "Customer changed mind"},
+        headers=headers,
+    )
+    assert cancel_res.status_code == 200
+    assert cancel_res.json()["status"] == "cancelled"
+    assert len(cancel_res.json()["status_history"]) == 2
+
+    prod_after_cancel = await client.get(
+        f"/api/v1/businesses/{business_id}/products/{prod_id}", headers=headers
+    )
+    assert prod_after_cancel.json()["stock_quantity"] == 10
+
+
+@pytest.mark.asyncio
+async def test_order_list_pagination_and_status_filter(
+    client: AsyncClient, create_user, create_business
+):
+    """Orders are paginated and filterable by status."""
+    user_id, headers = await create_user("list_owner@example.com")
+    business_id = await create_business(
+        user_id, "List Biz", f"list-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "P", "sku": "P-1", "price": 1.00},
+        headers=headers,
+    )
+    prod_id = prod_res.json()["id"]
+
+    for _ in range(5):
+        await client.post(
+            f"/api/v1/businesses/{business_id}/orders",
+            json={"items": [{"product_id": prod_id, "quantity": 1}]},
+            headers=headers,
+        )
+
+    res = await client.get(
+        f"/api/v1/businesses/{business_id}/orders?page=1&page_size=2",
+        headers=headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == 5
+    assert data["page"] == 1
+    assert data["page_size"] == 2
+    assert data["total_pages"] == 3
+    assert data["has_next"] is True
+    assert len(data["items"]) == 2
+
+    res = await client.get(
+        f"/api/v1/businesses/{business_id}/orders?status=pending", headers=headers
+    )
+    assert res.status_code == 200
+    assert all(item["status"] == "pending" for item in res.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_order_update_notes_and_address(
+    client: AsyncClient, create_user, create_business
+):
+    """Non-status order fields (notes, fulfillment_address) can be updated."""
+    user_id, headers = await create_user("update_owner@example.com")
+    business_id = await create_business(
+        user_id, "Update Biz", f"update-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "U", "sku": "U-1", "price": 1.00},
+        headers=headers,
+    )
+    prod_id = prod_res.json()["id"]
+    order_res = await client.post(
+        f"/api/v1/businesses/{business_id}/orders",
+        json={"items": [{"product_id": prod_id, "quantity": 1}]},
+        headers=headers,
+    )
+    order_id = order_res.json()["id"]
+
+    update_res = await client.patch(
+        f"/api/v1/businesses/{business_id}/orders/{order_id}",
+        json={"notes": "Please call ahead", "fulfillment_address": "2 Updated Ave"},
+        headers=headers,
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["notes"] == "Please call ahead"
+    assert update_res.json()["fulfillment_address"] == "2 Updated Ave"
+    assert update_res.json()["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_order_number_uses_business_prefix(
+    client: AsyncClient, create_user, create_business
+):
+    """Generated order numbers carry the business order prefix."""
+    user_id, headers = await create_user("prefix_owner@example.com")
+    business_id = await create_business(
+        user_id, "Prefix Biz", f"prefix-biz-{uuid.uuid4().hex[:6]}"
+    )
+    prod_res = await client.post(
+        f"/api/v1/businesses/{business_id}/products",
+        json={"name": "X", "sku": "X-1", "price": 1.00},
+        headers=headers,
+    )
+    prod_id = prod_res.json()["id"]
+    order_res = await client.post(
+        f"/api/v1/businesses/{business_id}/orders",
+        json={"items": [{"product_id": prod_id, "quantity": 1}]},
+        headers=headers,
+    )
+    assert order_res.status_code == 201
+    assert order_res.json()["order_number"].startswith("WF-")

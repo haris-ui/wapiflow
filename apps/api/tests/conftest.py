@@ -1,11 +1,29 @@
 import asyncio
+import sys
 import uuid
 from typing import AsyncGenerator, Dict, Tuple
+from unittest.mock import MagicMock
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+# ---------------------------------------------------------------------------
+# Test-environment shim: boto3 (Cloudflare R2 SDK) is not required to run the
+# test suite. StorageService gates every real S3/R2 call behind
+# StorageService.is_r2_configured(), which returns False without credentials,
+# so the mock below is never exercised for actual I/O in tests. It only
+# allows the module to import in environments where boto3 isn't installed.
+# ---------------------------------------------------------------------------
+if "boto3" not in sys.modules:
+    _boto3_mock = MagicMock()
+    _boto3_mock.client = MagicMock(return_value=MagicMock())
+    sys.modules["boto3"] = _boto3_mock
+    sys.modules["botocore"] = MagicMock()
+    sys.modules["botocore.config"] = MagicMock()
+    sys.modules["botocore.exceptions"] = MagicMock()
 
 from app.database import get_db
 from app.models.base import Base

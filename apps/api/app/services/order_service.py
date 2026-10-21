@@ -3,7 +3,7 @@ import time
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,11 @@ from app.models.business import BusinessSettings
 from app.models.customer import Customer
 from app.models.order import Order, OrderItem, OrderStatusHistory
 from app.models.product import InventoryMovement, Product
+from app.models.whatsapp import Conversation, Message, WhatsAppAccount, WhatsAppPhoneNumber
+from app.services.meta_client import MetaWhatsAppClient
+import logging
+
+logger = logging.getLogger("wapiflow.services.orders")
 from app.schemas.common import PaginatedResponse
 from app.schemas.customer import CustomerResponse
 from app.schemas.order import (
@@ -294,6 +299,28 @@ class OrderService:
         )
 
     @staticmethod
+    async def get_order_model(
+        db: AsyncSession,
+        tenant: TenantContext,
+        order_id: uuid.UUID,
+    ) -> Order:
+        """Fetch raw SQLAlchemy Order model verified by tenant boundary."""
+        stmt = (
+            select(Order)
+            .where(
+                Order.id == order_id,
+                Order.business_id == tenant.business_id,
+            )
+        )
+        order = (await db.execute(stmt)).scalars().first()
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found in this business",
+            )
+        return order
+
+    @staticmethod
     async def transition_status(
         db: AsyncSession,
         tenant: TenantContext,
@@ -383,6 +410,13 @@ class OrderService:
         db.add(history_entry)
 
         await db.commit()
+
+        # Attempt automated WhatsApp notification dispatch
+        try:
+            await OrderService.dispatch_whatsapp_notification(db, tenant.business_id, order)
+        except Exception as notify_err:
+            logger.warning(f"Could not dispatch automated WhatsApp order notification: {notify_err}")
+
         return await OrderService.get_order_detail(db, tenant, order_id)
 
     @staticmethod
@@ -504,3 +538,145 @@ class OrderService:
             total_pages=total_pages,
             has_next=has_next,
         )
+
+    @staticmethod
+    async def dispatch_whatsapp_notification(
+        db: AsyncSession,
+        tenant_id: uuid.UUID,
+        order: Order,
+        custom_message: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Dispatches an automated order status or confirmation message to the customer via Meta WhatsApp Cloud API.
+        Also logs the message into the customer's conversation thread.
+        """
+        if not order.customer_id:
+            return None
+
+        # 1. Fetch customer
+        stmt_cust = select(Customer).where(
+            Customer.id == order.customer_id,
+            Customer.business_id == tenant_id,
+        )
+        customer = (await db.execute(stmt_cust)).scalars().first()
+        if not customer or not customer.phone_number:
+            return None
+
+        # 2. Check if business has connected WhatsApp account
+        stmt_acc = select(WhatsAppAccount).where(
+            WhatsAppAccount.business_id == tenant_id,
+            WhatsAppAccount.status == "connected",
+        )
+        account = (await db.execute(stmt_acc)).scalars().first()
+        if not account or not account.access_token:
+            return None
+
+        stmt_phone = select(WhatsAppPhoneNumber).where(
+            WhatsAppPhoneNumber.whatsapp_account_id == account.id,
+            WhatsAppPhoneNumber.is_primary.is_(True),
+        )
+        phone_obj = (await db.execute(stmt_phone)).scalars().first()
+        phone_number_id = phone_obj.phone_number if phone_obj else account.waba_id
+
+        # 3. Format message
+        status_icons = {
+            "pending": "🛒",
+            "confirmed": "✅",
+            "preparing": "👨‍🍳",
+            "ready_for_dispatch": "📦",
+            "shipped": "🚚",
+            "delivered": "🎉",
+            "cancelled": "❌",
+        }
+        icon = status_icons.get(order.status, "ℹ️")
+        if custom_message:
+            msg_text = custom_message
+        else:
+            msg_text = (
+                f"{icon} Order update for #{order.order_number}:\n"
+                f"Status: {order.status.upper()}\n"
+                f"Total: {order.currency} {order.total_amount:.2f}\n"
+                f"Thank you for shopping with us!"
+            )
+
+        # 4. Dispatch via Meta WhatsApp Cloud API.
+        #    Per Phase 3, automated order status notifications are delivered as
+        #    WhatsApp template messages (approved template). Ad-hoc custom
+        #    messages are sent as plain text. A plain-text fallback is used if
+        #    the template cannot be dispatched. The human-readable body is
+        #    always logged to the conversation thread.
+        client = MetaWhatsAppClient()
+        to_phone = customer.phone_number.lstrip("+")
+        resp = None
+        if custom_message:
+            resp = await client.send_text_message(
+                phone_number_id=phone_number_id,
+                access_token=account.access_token,
+                to_phone=to_phone,
+                text=msg_text,
+            )
+        else:
+            try:
+                resp = await client.send_template_message(
+                    phone_number_id=phone_number_id,
+                    access_token=account.access_token,
+                    to_phone=to_phone,
+                    template_name="order_status_update",
+                    language_code="en_US",
+                    components=[
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": order.order_number},
+                                {"type": "text", "text": order.status.upper()},
+                                {"type": "text", "text": f"{order.currency} {order.total_amount:.2f}"},
+                            ],
+                        }
+                    ],
+                )
+            except Exception as template_err:
+                logger.warning(
+                    f"Template notification failed for order {order.order_number}, falling back to text: {template_err}"
+                )
+                resp = await client.send_text_message(
+                    phone_number_id=phone_number_id,
+                    access_token=account.access_token,
+                    to_phone=to_phone,
+                    text=msg_text,
+                )
+
+        # 5. Record outbound message in conversation thread
+        stmt_conv = select(Conversation).where(
+            Conversation.business_id == tenant_id,
+            Conversation.customer_id == customer.id,
+        )
+        conv = (await db.execute(stmt_conv)).scalars().first()
+        if not conv:
+            conv = Conversation(
+                business_id=tenant_id,
+                customer_id=customer.id,
+                status="open",
+            )
+            db.add(conv)
+            await db.flush()
+
+        wa_msg_id = None
+        if resp and "messages" in resp and len(resp["messages"]) > 0:
+            wa_msg_id = resp["messages"][0].get("id")
+
+        outbound_msg = Message(
+            conversation_id=conv.id,
+            business_id=tenant_id,
+            wa_message_id=wa_msg_id,
+            direction="outbound",
+            message_type="text",
+            content=msg_text,
+            status="sent",
+            is_internal_note=False,
+        )
+        db.add(outbound_msg)
+        conv.last_message_at = datetime.utcnow()
+        conv.last_message_preview = msg_text[:150]
+        await db.commit()
+
+        return resp

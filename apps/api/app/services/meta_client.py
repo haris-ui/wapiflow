@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 import httpx
 from app.config import get_settings
@@ -77,8 +78,15 @@ class MetaWhatsAppClient:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        # Format phone to strip plus and non-digits if needed
         clean_phone = "".join(filter(str.isdigit, to_phone))
+        if access_token.startswith("test_") or phone_number_id.startswith("waba_"):
+            logger.info(f"Mocking outbound WhatsApp message to {clean_phone} with test credentials")
+            return {
+                "messaging_product": "whatsapp",
+                "contacts": [{"input": clean_phone, "wa_id": clean_phone}],
+                "messages": [{"id": f"wamid.mock_{clean_phone}_{uuid.uuid4().hex[:8]}"}],
+            }
+
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",

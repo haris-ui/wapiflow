@@ -137,3 +137,23 @@ async def update_order(
 ) -> OrderResponse:
     """Update order fulfillment details and notes."""
     return await OrderService.update_order(db, tenant, order_id, order_in)
+
+
+@router.post(
+    "/{order_id}/notify",
+    status_code=status.HTTP_200_OK,
+    summary="Dispatch WhatsApp notification to customer for order",
+)
+async def notify_order_customer(
+    order_id: uuid.UUID,
+    business_id: uuid.UUID,
+    custom_message: Optional[str] = Query(default=None),
+    tenant: TenantContext = Depends(get_tenant_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually dispatch or re-send WhatsApp order status notification to customer."""
+    order = await OrderService.get_order_model(db, tenant, order_id)
+    resp = await OrderService.dispatch_whatsapp_notification(
+        db, tenant.business_id, order, custom_message=custom_message
+    )
+    return {"status": "ok", "delivered": resp is not None, "response": resp}

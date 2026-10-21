@@ -17,6 +17,7 @@ from app.models.whatsapp import (
     WhatsAppPhoneNumber,
 )
 from app.services.meta_client import MetaWhatsAppClient
+from app.services.storage_service import StorageService
 
 logger = logging.getLogger("wapiflow.webhook")
 settings = get_settings()
@@ -178,6 +179,9 @@ class WebhookService:
         # Extract message body
         content: Optional[str] = None
         media_url: Optional[str] = None
+        media_r2_key: Optional[str] = None
+        media_mime: Optional[str] = None
+
         if msg_type == "text":
             content = msg.get("text", {}).get("body", "")
         elif msg_type == "interactive":
@@ -189,12 +193,34 @@ class WebhookService:
                 content = interactive.get("list_reply", {}).get("title")
             else:
                 content = "[Interactive message response]"
-        elif msg_type in ("image", "document", "audio", "video"):
+        elif msg_type in ("image", "document", "audio", "video", "voice"):
             media_info = msg.get(msg_type, {})
             caption = media_info.get("caption", "")
             media_id = media_info.get("id", "")
-            content = f"[{msg_type.capitalize()}] {caption}".strip()
+            media_mime = media_info.get("mime_type", "")
+            content = f"[{msg_type.capitalize()}] {caption}".strip() if caption else f"[{msg_type.capitalize()}]"
             media_url = f"meta://media/{media_id}"
+
+            # If business account has access token, attempt downloading to R2/local storage
+            if business_id and media_id:
+                try:
+                    stmt_acc = select(WhatsAppAccount).where(
+                        WhatsAppAccount.business_id == business_id,
+                        WhatsAppAccount.status == "connected",
+                    )
+                    acc = (await db.execute(stmt_acc)).scalars().first()
+                    if acc and acc.access_token:
+                        storage_res = await StorageService.download_and_store_meta_media(
+                            business_id=business_id,
+                            media_id=media_id,
+                            access_token=acc.access_token,
+                            expected_mime_type=media_mime,
+                        )
+                        if storage_res:
+                            media_url = storage_res["url"]
+                            media_r2_key = storage_res["key"]
+                except Exception as media_err:
+                    logger.warning(f"Could not store incoming WhatsApp media {media_id}: {media_err}")
         elif msg_type == "location":
             loc = msg.get("location", {})
             name = loc.get("name") or "Location"
@@ -262,6 +288,8 @@ class WebhookService:
             message_type=msg_type,
             content=content,
             media_url=media_url,
+            media_r2_key=media_r2_key,
+            media_mime_type=media_mime,
             status="received",
             is_internal_note=False,
             metadata_=msg,
