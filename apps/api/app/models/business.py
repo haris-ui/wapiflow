@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -131,7 +131,7 @@ class BusinessMember(Base, TimestampMixin):
     )
     role: Mapped[str] = mapped_column(
         String(32),
-        default="staff",  # owner, manager, staff
+        default="staff",  # owner, manager, staff, agent, viewer
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(
@@ -149,6 +149,100 @@ class BusinessMember(Base, TimestampMixin):
         "Profile",
         back_populates="memberships",
     )
+
+
+class BusinessInvitation(Base, TimestampMixin):
+    """Pending team-member invitation for a business tenant."""
+
+    __tablename__ = "business_invitations"
+    __table_args__ = (
+        UniqueConstraint("business_id", "email", name="uq_business_invitation_business_email"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(
+        String(255),
+        index=True,
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(
+        String(32),
+        default="staff",
+        nullable=False,  # manager, staff, agent, viewer
+    )
+    token: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    invited_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Relationships
+    business: Mapped["Business"] = relationship("Business")
+    inviter: Mapped[Optional["Profile"]] = relationship("Profile")
+
+
+class AgentActivityLog(Base):
+    """Immutable audit log of agent/team activity within a business tenant."""
+
+    __tablename__ = "agent_activity_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("profiles.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    action: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,  # invite_accept, conversation_assign, conversation_unassign, status_change, message_send, typing_start, typing_stop
+    )
+    resource_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    # Relationships
+    business: Mapped["Business"] = relationship("Business")
+    user: Mapped[Optional["Profile"]] = relationship("Profile")
 
 
 class BusinessSettings(Base, TimestampMixin):

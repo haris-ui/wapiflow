@@ -25,6 +25,7 @@ from app.schemas.conversation import (
 from app.schemas.order import OrderCreate, OrderResponse
 from app.services.meta_client import MetaWhatsAppClient
 from app.services.order_service import OrderService
+from app.services.team_service import TeamService
 
 logger = logging.getLogger("wapiflow.conversations")
 
@@ -38,6 +39,9 @@ class ConversationService:
         tenant: TenantContext,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
+        assigned_to: Optional[uuid.UUID] = None,
+        mine: bool = False,
+        current_user_id: Optional[uuid.UUID] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> PaginatedResponse[ConversationResponse]:
@@ -61,6 +65,11 @@ class ConversationService:
                     Customer.phone_number.ilike(pattern),
                 )
             )
+
+        if mine and current_user_id is not None:
+            query = query.where(Conversation.assigned_to == current_user_id)
+        elif assigned_to is not None:
+            query = query.where(Conversation.assigned_to == assigned_to)
 
         # Count total
         count_stmt = select(func.count()).select_from(query.subquery())
@@ -356,6 +365,16 @@ class ConversationService:
         await db.commit()
         await db.refresh(msg_record)
 
+        await TeamService.log_activity(
+            db,
+            tenant.business_id,
+            tenant.user_id,
+            "message_send",
+            resource_type="message",
+            resource_id=msg_record.id,
+        )
+        await db.commit()
+
         return MessageResponse(
             id=msg_record.id,
             conversation_id=msg_record.conversation_id,
@@ -408,6 +427,17 @@ class ConversationService:
         conv.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(conv)
+
+        if update_data.status is not None:
+            await TeamService.log_activity(
+                db,
+                tenant.business_id,
+                tenant.user_id,
+                "status_change",
+                resource_type="conversation",
+                resource_id=conversation_id,
+            )
+            await db.commit()
 
         return ConversationResponse(
             id=conv.id,
@@ -481,3 +511,69 @@ class ConversationService:
         await db.commit()
 
         return order_resp
+
+    @staticmethod
+    async def assign_conversation(
+        db: AsyncSession,
+        tenant: TenantContext,
+        conversation_id: uuid.UUID,
+        user_id: Optional[uuid.UUID],
+    ) -> ConversationResponse:
+        """Assign or unassign a conversation to an agent within the tenant."""
+        stmt = select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.business_id == tenant.business_id,
+        )
+        conv = (await db.execute(stmt)).scalars().first()
+        if not conv:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found",
+            )
+
+        conv.assigned_to = user_id
+        conv.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(conv)
+
+        action = "conversation_assign" if user_id else "conversation_unassign"
+        await TeamService.log_activity(
+            db,
+            tenant.business_id,
+            tenant.user_id,
+            action,
+            resource_type="conversation",
+            resource_id=conversation_id,
+        )
+        await db.commit()
+
+        # Load customer for the response
+        stmt_cust = (
+            select(Conversation)
+            .options(selectinload(Conversation.customer))
+            .where(Conversation.id == conv.id)
+        )
+        conv = (await db.execute(stmt_cust)).scalars().first()
+
+        return ConversationResponse(
+            id=conv.id,
+            business_id=conv.business_id,
+            customer_id=conv.customer_id,
+            customer=(
+                ConversationCustomerInfo(
+                    id=conv.customer.id,
+                    name=conv.customer.name,
+                    phone_number=conv.customer.phone_number,
+                    email=conv.customer.email,
+                )
+                if conv.customer
+                else None
+            ),
+            status=conv.status,
+            assigned_to=conv.assigned_to,
+            unread_count=conv.unread_count,
+            last_message_at=conv.last_message_at,
+            last_message_preview=conv.last_message_preview,
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+        )

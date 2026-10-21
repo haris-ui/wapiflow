@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -336,3 +346,58 @@ class WebhookEvent(Base):
 # Backward compatibility aliases
 WhatsAppConnection = WhatsAppAccount
 WhatsAppMessage = Message
+
+
+class ConversationTyping(Base):
+    """Live typing-indicator state for a user within a conversation."""
+
+    __tablename__ = "conversation_typing"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id",
+            "conversation_id",
+            "user_id",
+            name="uq_conversation_typing",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    is_typing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    # Relationships
+    business: Mapped["Business"] = relationship("Business")
+    conversation: Mapped["Conversation"] = relationship("Conversation")
+    user: Mapped["Profile"] = relationship("Profile")

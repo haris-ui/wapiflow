@@ -76,3 +76,11 @@ class ConversationQuickOrderCreate(BaseSchema):
     notes: Optional[str] = Field(None, max_length=1000, description="Order notes")
     fulfillment_address: Optional[str] = Field(None, max_length=500)
     idempotency_key: Optional[str] = Field(None, max_length=128)
+
+
+class ConversationAssign(BaseSchema):
+    """Payload to assign or unassign a conversation to an agent."""
+
+    user_id: Optional[uuid.UUID] = Field(
+        None, description="Agent user ID to assign; null to unassign"
+    )

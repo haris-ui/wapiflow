@@ -7,6 +7,7 @@ from app.database import get_db
 from app.dependencies import TenantContext, get_tenant_context
 from app.schemas.common import PaginatedResponse
 from app.schemas.conversation import (
+    ConversationAssign,
     ConversationDetailResponse,
     ConversationQuickOrderCreate,
     ConversationResponse,
@@ -30,6 +31,8 @@ async def list_conversations(
     business_id: uuid.UUID,
     status: Optional[str] = Query(None, description="Filter by status: open, resolved, snoozed"),
     search: Optional[str] = Query(None, description="Search by customer name, phone, or message"),
+    assigned_to: Optional[uuid.UUID] = Query(None, description="Filter by assigned agent user ID"),
+    mine: bool = Query(False, description="If true, only conversations assigned to the current user"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     tenant: TenantContext = Depends(get_tenant_context),
@@ -41,8 +44,33 @@ async def list_conversations(
         tenant=tenant,
         status_filter=status,
         search=search,
+        assigned_to=assigned_to,
+        mine=mine,
+        current_user_id=tenant.user_id,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.post(
+    "/{conversation_id}/assign",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Assign or unassign a conversation to an agent",
+)
+async def assign_conversation(
+    conversation_id: uuid.UUID,
+    assign_in: ConversationAssign,
+    business_id: uuid.UUID,
+    tenant: TenantContext = Depends(get_tenant_context),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationResponse:
+    """Assign a conversation to an agent (or unassign when user_id is null)."""
+    return await ConversationService.assign_conversation(
+        db=db,
+        tenant=tenant,
+        conversation_id=conversation_id,
+        user_id=assign_in.user_id,
     )
 
 
